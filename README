@@ -1,4 +1,4 @@
-# lede-modhostapd
+lede-modhostapd
 
 Modified version of hostapd / wpad that supports restricting AP clients to
 only those which have a dBm signal above a settable threshold.
@@ -17,21 +17,22 @@ This is not desirable for several reasons:
    customers to stay inside the business.
    
 Drawbacks 2 and 3 can be addressed by reducing the transmitter power of 
-the AP.  But that impairs desired user's reception reducing system performance.
+the AP.  But that also reduces the signal delivered to all desired users,
+reducing system performance.
 
 This modification causes hostapd to monitor the signal strength from the 
 STA's.  If they are above a (settable) threshold, operation of the AP 
 proceeds normally.  If a STA's signal is below the threshold, that STA is
 not allowed to connect, or dropped if it is already connected.  Probe requests
 from weak STAs are also dropped.  This may have some usefulness by limiting
-the AP's transmission of Probe Responses in a crowded area.
+the AP's transmission of Probe Responses in a crowded area.  
 
 Installation:
 This was tested with LEDE 17.01.2 on ar71xx hardware, specifically a TP-Link
 TL-WA701v2 with flash expanded to 16 MB.
 Install the LEDE buildroot. (git.lede-project.org/source.git)
 Make a default build for your target hardware. (outside the scope of this document)
-Install LEDE on your router.  You may use a release binary since this 
+Install LEDE on your router.  You may use the release binary since this 
 package runs only in userspace.
 Confirm that wpad-mini is selected.  This is usually the default.  It should work
 with other variants of hostapd / wpad but this is not tested.
@@ -41,10 +42,13 @@ Rebuild the hostapd package:
 make package/hostapd/compile
 Find the wpad-mini .ipk file in bin/packages/<target>/base
 scp that file to your router's /tmp
+also send the hostapd-common ipk (the configuration script)
 ssh to the router
-root@LEDE:~# opkg remove wpad-mini
-root@LEDE:~# opkg install /tmp/wpad-mini<version>.ipk
-root@LEDE:~# killall hostapd
+root@LEDE:~# opkg --force-reinstall install /tmp/hostapd-common<version>.ipk
+root@LEDE:~# opkg --force-reinstall install /tmp/wpad-mini<version>.ipk
+root@LEDE:~# reboot
+A reboot seems to be necessary to get the UCI configuration system working
+properly.
 hostapd should now have restarted with the new version.  Confirm you are 
 running the mod version by checking if the set_required_signal ubus call
 exists:
@@ -57,8 +61,8 @@ do as shown above and remove the original wpad-mini to install a new one.
 A complete image must be built and flashed with the new wpad-mini in the squashfs.
 
 Usage:       
-Presently, configuration is only possible with a ubus call.  When first
-started, the signal levels are set to -128 dBm, which is lower than any
+When unconfigured,
+the signal levels are set to -128 dBm, which is lower than any
 actual signal.  So all connections will be accepted and retained as normal.
 Set the log_level in the wifi-device section of /etc/config/wireless to 1 or
 lower to see the relevant log messages.  Use logread -f to follow the log.
@@ -66,16 +70,25 @@ Connect a STA you should see something like this:
 daemon.info hostapd: wlan0: STA f8:e0:79:XX:XX:XX MLME: auth request, signal -31 (Accepted)
 In this case -31 is a very stong signal from having the STA device only a few
 feet from the router.
-Set connect and stay thresholds this way:
+The signal checking extension can be configured with options in /etc/config/wireless.
+Note that this is per AP, not per radio.  So you can have a user AP with restricted
+signal, and an administrative AP which accepts all signals.
+The following 5 keys are defined:
+	option signal_connect "-50"  # dBm requred to connect
+	option signal_stay "-55" # dBm required to stay connected
+	option signal_strikes "3" # Number of polls below stay threshold before disconnection
+	option signal_poll_time "5" # Seconds between polls (min. 3, default 10)
+	option signal_drop_reason "3" # IEEE802.11 reason sent to the STA when it is dropped.
+
+The same options may be set with a ubus call.  This will not disconnect all the clients
+like re-reading the config file does.
 root@LEDE:~# ubus call hostapd.wlan0 set_required_signal '{"connect":-50,"stay":-50}'
-At this point you should see signal reports: 
+When running with a "signal_stay" above -128 dBm you should see signal reports: 
 daemon.debug hostapd: wlan0: STA f8:e0:79:XX:XX:XX IAPP: -35 -38 (0)
 daemon.info hostapd: wlan0: IAPP signal poll: 1 STAs, 0 dropped
 The report is instantaneous signal, average signal and (number of strikes)
 Experimentation will be needed to determine the optimal settings for the
 particular situation.
-The ubus call can be placed in /etc/rc.local to set up signal levels after
-a reboot.
 
 Settable parameters are:
 "connect": signal (dBm) required for a received Probe, Auth Request, or 
@@ -112,7 +125,7 @@ to call the driver to take a snapshot of the signal level.  These are the
 same level numbers reported by for example iw station dump.
 
 Since snapshot signal checks can be momentarilly low, signal_check has several
-provisions to prevent unwarranted dropping of a STA.  First if the 
+provisions to discourage the unwarranted dropping of a STA.  First if the 
 instantaneous signal is more than 5 dB below the "average", the signal report
 is ignored completely.  The higher of the instantaneous and average is
 compared to the "stay" threshold.  If it is below threshold, a "strike" is 

@@ -37,12 +37,6 @@ struct hostapd_ubus_iface {
 struct hostapd_ubus_bss { /* per-BSS parameters */
 	struct ubus_object obj;
 	struct avl_tree banned; /* List of banned MACs */
-	int	signal_auth_min;    /* Minimum signal a STA needs to authenticate */
-	int signal_stay_min;    /* Minimum signal needed to stay connected. */
-	int signal_poll_time;   /* Time in seconds between checks of connected STAs */
-	int signal_strikes;     /* Number of consecutive times signal can be low
-								before dropping the STA.  */
-	int signal_drop_reason; /* IEEE reason transmitted when dropping a STA.  */
 };
 
 void hostapd_ubus_add_iface(struct hostapd_iface *iface);
