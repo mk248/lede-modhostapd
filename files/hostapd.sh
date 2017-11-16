@@ -142,6 +142,7 @@ hostapd_common_add_bss_config() {
 	config_add_int \
 		wep_rekey eap_reauth_period \
 		wpa_group_rekey wpa_pair_rekey wpa_master_rekey
+	config_add_boolean wpa_disable_eapol_key_retries
 
 	config_add_boolean rsn_preauth auth_cache
 	config_add_int ieee80211w
@@ -205,14 +206,15 @@ hostapd_set_bss_options() {
 	local wep_rekey wpa_group_rekey wpa_pair_rekey wpa_master_rekey wpa_key_mgmt
 
 	json_get_vars \
-	    signal_connect signal_stay signal_poll_time signal_drop_reason signal_strikes \
+		signal_connect signal_stay signal_poll_time signal_drop_reason signal_strikes \
 		wep_rekey wpa_group_rekey wpa_pair_rekey wpa_master_rekey \
+		wpa_disable_eapol_key_retries \
 		maxassoc max_inactivity disassoc_low_ack isolate auth_cache \
 		wps_pushbutton wps_label ext_registrar wps_pbc_in_m1 wps_ap_setup_locked \
 		wps_independent wps_device_type wps_device_name wps_manufacturer wps_pin \
 		macfilter ssid wmm uapsd hidden short_preamble rsn_preauth \
 		iapp_interface eapol_version acct_server acct_secret acct_port \
-		dynamic_vlan ieee80211w 
+		dynamic_vlan ieee80211w
 
 	set_default isolate 0
 	set_default maxassoc 0
@@ -222,6 +224,7 @@ hostapd_set_bss_options() {
 	set_default hidden 0
 	set_default wmm 1
 	set_default uapsd 1
+	set_default wpa_disable_eapol_key_retries 0
 	set_default eapol_version 0
 	set_default acct_port 1813
 	set_default signal_connect -128
@@ -229,7 +232,7 @@ hostapd_set_bss_options() {
 	set_default signal_poll_time 10
 	set_default signal_drop_reason 3
 	set_default signal_strikes 3
-
+	
 	append bss_conf "ctrl_interface=/var/run/hostapd"
 	if [ "$isolate" -gt 0 ]; then
 		append bss_conf "ap_isolate=$isolate" "$N"
@@ -380,7 +383,7 @@ hostapd_set_bss_options() {
 	[ -n "$network_bridge" ] && append bss_conf "bridge=$network_bridge" "$N"
 	[ -n "$iapp_interface" ] && {
 		local ifname
-		network_get_device ifname "$iapp_interface" || ifname = "$iapp_interface"
+		network_get_device ifname "$iapp_interface" || ifname="$iapp_interface"
 		append bss_conf "iapp_interface=$ifname" "$N"
 	}
 
@@ -414,6 +417,8 @@ hostapd_set_bss_options() {
 				append bss_conf "r1kh=${kh//,/ }" "$N"
 			done
 		fi
+
+		append bss_conf "wpa_disable_eapol_key_retries=$wpa_disable_eapol_key_retries" "$N"
 
 		hostapd_append_wpa_key_mgmt
 		[ -n "$wpa_key_mgmt" ] && append bss_conf "wpa_key_mgmt=$wpa_key_mgmt" "$N"
@@ -636,7 +641,7 @@ wpa_supplicant_add_network() {
 		scan_ssid=""
 	}
 
-	[[ "$_w_mode" = "adhoc" -o "$_w_mode" = "mesh" ]] && append network_data "$_w_modestr" "$N$T"
+	[ "$_w_mode" = "adhoc" -o "$_w_mode" = "mesh" ] && append network_data "$_w_modestr" "$N$T"
 
 	case "$auth_type" in
 		none) ;;
@@ -724,6 +729,7 @@ wpa_supplicant_add_network() {
 			;;
 		esac
 	}
+	local beacon_int brates mrate
 	[ -n "$bssid" ] && append network_data "bssid=$bssid" "$N$T"
 
 	local bssid_blacklist bssid_whitelist
